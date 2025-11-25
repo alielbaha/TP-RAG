@@ -6,7 +6,8 @@ from pathlib import Path
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.schema import Document
+from langchain_core.documents import Document
+
 
 
 logging.basicConfig(level=logging.INFO)
@@ -296,3 +297,45 @@ class Retriever:
 
         logger.info(f"Evaluation complete: {results['queries_with_results']}/{results['total_queries']} queries returned results")
         return results
+    
+
+
+# to test the retriever module
+if __name__ == "__main__":
+    # Initialize retriever
+    retriever = Retriever(
+        vector_store_path="./chroma_db",
+        embedding_model_name="sentence-transformers/all-MiniLM-L6-v2",
+        collection_name="documents",
+        top_k=5
+    )
+
+    # Load vector store
+    try:
+        retriever.load_vector_store()
+
+        # Example queries for testing
+        test_queries = [
+            "What are the main findings of this research?",
+            "Explain the methodology used in the study",
+            "What are the conclusions and future work?"
+        ]
+
+        print("\nRunning test queries...\n")
+
+        for query in test_queries:
+            # Retrieve documents
+            results = retriever.retrieve_documents(query, top_k=3)
+
+            # Print results
+            retriever.print_search_results(query, results)
+
+        # Get unique sources
+        sources = retriever.get_unique_sources()
+        print(f"\nUnique sources in database: {len(sources)}")
+        for source in sources:
+            print(f"  - {Path(source).name}")
+
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        raise
