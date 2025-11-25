@@ -1,7 +1,7 @@
 """ Document Retrieval System for RAG """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional
 from pathlib import Path
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -194,3 +194,105 @@ class Retriever:
         logger.info(f"Found {len(documents)} documents matching metadata")
         return documents
 
+    def get_unique_sources(self) -> List[str]:
+        if self.vector_store is None:
+            self.load_vector_store()
+        
+        collection = self.vector_store._collection
+        all_metadatas = collection.get()['metadatas']
+
+        sources = set()
+        for metadata in all_metadatas:
+            if 'source' in metadata:
+                sources.add(metadata['source'])
+        
+        return sorted(list(sources))
+    
+    def print_search_results(
+            self,
+            query: str,
+            results: List[Dict[str, Any]],
+            max_content_length: int = 300
+    ) -> None:
+        print("\n" + "="*80)
+        print(f"SEARCH RESULTS FOR: '{query}'")
+        print("="*80)
+
+        if not results:
+            print("\nNo results found.")
+            return
+
+        for result in results:
+            print(f"\n[Rank {result['rank']}]")
+            
+            if 'similarity_score' in result:
+                print(f"Similarity Score: {result['similarity_score']:.4f}")
+            
+            print(f"Source: {Path(result['source']).name}")
+            print(f"Page: {result['page']}")
+            
+            content = result['content']
+            if len(content) > max_content_length:
+                content = content[:max_content_length] + "..."
+            
+            print(f"\nContent Preview:")
+            print(f"{content}")
+            print("-" * 80)
+
+        print()
+
+
+    def evaluate_retrieval(
+            self,
+            test_queries: List[str],
+            expected_sources: Optional[List[List[str]]] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate retrieval performance using test queries."""
+        logger.info("Starting retrieval evaluation...")
+        logger.info(f"Number of test queries: {len(test_queries)}")
+
+        results = {
+            "total_queries": len(test_queries),
+            "queries_with_results": 0,
+            "average_score": 0.0,
+            "average_results_per_query": 0.0,
+            "query_results": []
+        }
+
+        total_score = 0.0
+        total_results = 0
+
+        for i, query in enumerate(test_queries):
+            query_results = self.retrieve_documents(query, return_scores=True)
+
+            if query_results:
+                results["queries_with_results"] += 1
+                total_results += len(query_results)
+
+                # calculer le score moyen pour cette requête
+                query_avg_score = sum([res['similarity_score'] for res in query_results]) / len(query_results)
+                total_score += query_avg_score
+
+                # verifier les sources attendues si fournies
+                retrieved_sources = [Path(r["source"]).name for r in query_results]
+                matches = None
+                if expected_sources and i < len(expected_sources):
+                    expected = expected_sources[i]
+                    matches = len(set(retrieved_sources) & set(expected))
+
+                results["query_results"].append({
+                    "query": query,
+                    "num_results": len(query_results),
+                    "avg_score": query_avg_score,
+                    "top_score": query_results[0]["similarity_score"],
+                    "sources": retrieved_sources,
+                    "expected_matches": matches
+                })
+
+        # Calculate overall metrics
+        if results["queries_with_results"] > 0:
+            results["average_score"] = total_score / results["queries_with_results"]
+            results["average_results_per_query"] = total_results / len(test_queries)
+
+        logger.info(f"Evaluation complete: {results['queries_with_results']}/{results['total_queries']} queries returned results")
+        return results
