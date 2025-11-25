@@ -4,10 +4,10 @@ from pathlib import Path
 import logging 
 
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+from langchain_text.splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings 
 from langchain_community.vectorstores import Chroma 
-from langchain.schema import Document
+from langchain import Document
 
 
 logging.basicConfig(level=logging.INFO)
@@ -69,7 +69,120 @@ class DocIndexer:
             else:
                 raise ValueError(f"erreur de type de fichier: {file_type}")
         else:
+            if file_type.lower() == "pdf":
+                loader = DirectoryLoader(data_path, glob="**/*.pdf" if recursive else "*.pdf", loader_cls = PyPDFLoader, show_progress =True)
+                docs = loader.load()  
+                logger.info(f"chargmet {len(docs)} pdfs")
 
+            else :
+                raise ValueError(f"pdfs chargés")
+
+            return docs
+
+    def split_docs(self, docs, preserve_metadata = True):
+        logger.info(f"splitting {len(docs)} to chunks")
+
+        text_splitter = self.init_text_splitter()
+        chunks = text_splitter.split_documents(docs)
+
+        if preserve_metadata:
+            for i,chunk in enumerate(chunks):
+                chunk.metadata["chunk_id"] = i
+                chunk.metadata["chunk_size"] = len(chunk.page_content)
+
+        logger.info(f"{len(chunks)} chunks crées a partir de {len(docs)} docs")
+
+        return chunks
+
+
+    def create_embeddings(self, chunks):
+        self.initialize_embedding()
+        logger.info(f"Embeddings crée pour {len(chunks)} chunks")
+        return chunks 
+
+
+    def store_in_vector_db(self, chunks, persist = True):
+        logger.info(f"stockage {len(chunks)} chunks")
+        embeddings = self._init_embedding()
+
+        if persist:
+            os.makedirs(self.vector_store_path, exist_ok = True)
+
+        self.vector_store = Chroma.from_documents(docs = chunks,  embedding = embeddings, collection_name = self.collection_name, presist_directory = self.vector_store_path if persist else None)
+
+        logger.info("vector store crée dans {self.vector_store_path}")
+        return self.vector_store
+
+
+    def index_doc(self, data_path,file_type = "pdf", persist = True):
+        logger.info("demarrage d'indexation..")
+
+        docs = self.load_documents(data_path, file_type)
+
+        chunks = self.split_documents(docs)
+
+        chunks = self.create_embeddings(chunks)
+
+        vector_store = self.store_in_vector_db(chunks, persist)
+
+        logger.info("Done")
+
+
+        return vector_store
+
+    def load_existing_vector_store(self):
+        logger.info("chargemnt de vecore store dans {self.vector_store_path}")
+
+        if not os.path.exists(self.vector_store_path):
+            raise FileNotFoundError(f"vector store introuvable dans {self.vector_store_path}")
+        
+        embeddings = self._init_embedding()
+
+        self.vector_store = Chroma(collection_name = self.collection_name, embedding_function = embeddings, persist_directory = self.vector_store_path)
+
+        logger.info("vector store chargé")
+        return self.vector_store
+    
+    def get_stats(self):
+        if self.vector_store is None:
+            return {"erreur" : "pas de vector store"}
+        collection = self.vectore_store_collection 
+        count = collection.count()
+
+
+        stats = {"nb_chunks_total" : count,
+                  "embedding_model" : self.embedding_model_name,
+                  "collection_name" : self.collection_name,
+                  "vector_store_path" : self.vector_store_path,
+                  "chunk_size": self.chunk_size,
+                  "chunk_overlap":self.chunk_overlap}
+        
+
+        logger.info(f"stats du vector store : {stats}")
+        return stats
+    
+
+
+
+if __name__ == "__main__":
+    indexer = DocIndexer(embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2")
+
+    try:
+        vector_store = indexer.index_documents(data_path = "./data", file_type = "pdf", persist = True)
+        stats = indexer.get_stats()
+        for key, value in stats.items():
+            print(f"{key}: {value}")
+
+    except Exception as e:
+        logger.error(f"error during indexing: {e} ")
+        raise
+
+
+    
+
+
+
+    
         
         
         
