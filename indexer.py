@@ -4,10 +4,10 @@ from pathlib import Path
 import logging 
 
 from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain_text.splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings 
 from langchain_community.vectorstores import Chroma 
-from langchain import Document
+from langchain_core.documents import Document
 
 
 logging.basicConfig(level=logging.INFO)
@@ -117,7 +117,7 @@ class DocIndexer:
     def index_doc(self, data_path,file_type = "pdf", persist = True):
         logger.info("demarrage d'indexation..")
 
-        docs = self.load_documents(data_path, file_type)
+        docs = self.load_doc(data_path, file_type)
 
         chunks = self.split_documents(docs)
 
@@ -168,7 +168,7 @@ if __name__ == "__main__":
     indexer = DocIndexer(embedding_model_name = "sentence-transformers/all-MiniLM-L6-v2")
 
     try:
-        vector_store = indexer.index_documents(data_path = "./data", file_type = "pdf", persist = True)
+        vector_store = indexer.index_doc(data_path = "./data", file_type = "pdf", persist = True)
         stats = indexer.get_stats()
         for key, value in stats.items():
             print(f"{key}: {value}")
