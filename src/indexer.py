@@ -3,12 +3,11 @@ from typing import List, Optional, Dict
 from pathlib import Path
 import logging 
 
-from langchain_community.document_loaders import PyPDFLoader, DirectoryLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings 
-from langchain_community.vectorstores import Chroma 
-from langchain_core.documents import Document
-
+from langchain.document_loaders import PyPDFLoader, DirectoryLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.schema import Document
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
