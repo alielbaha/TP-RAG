@@ -1,300 +1,515 @@
-# src/llm_handler.py
-
 
 import logging
-from typing import List, Tuple, Optional, Dict, Any
-from langchain.schema import Document
-from langchain.prompts import PromptTemplate
-from langchain_community.llms import HuggingFaceHub
-from langchain.chains import LLMChain
-import os
+from typing import List, Dict, Any, Optional
+import warnings
 
+from langchain.llms import HuggingFacePipeline, HuggingFaceHub
+from langchain.prompts import PromptTemplate
+from langchain.chains import RetrievalQA, LLMChain
+from langchain.schema import Document
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
+    pipeline,
+    BitsAndBytesConfig
+)
+import torch
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class LLMHandler:
+class LLMQuestionAnswering:
+    """
+    A class to handle LLM-based question answering using retrieved context.
+    Supports both local models and HuggingFace API.
+    """
 
-    
     def __init__(
         self,
-        model_name: str = "mistralai/Mistral-7B-Instruct-v0.2",
-        prompt_template: Optional[str] = None,
-        max_tokens: int = 512,
+        model_name: str = "google/flan-t5-base",
+        device: str = "cpu",
+        max_new_tokens: int = 512,
         temperature: float = 0.7,
-        top_p: float = 0.9,
-        huggingface_api_token: str = "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"
+        top_p: float = 0.95,
+        do_sample: bool = True,
+        use_api: bool = False,
+        api_token: Optional[str] = None,
+        use_quantization: bool = False
     ):
-        
+        """
+        Initialize the LLM Question Answering system.
+
+        Args:
+            model_name: HuggingFace model identifier
+            device: Device to run model on ('cpu' or 'cuda')
+            max_new_tokens: Maximum number of tokens to generate
+            temperature: Sampling temperature (higher = more random)
+            top_p: Nucleus sampling parameter
+            do_sample: Whether to use sampling (vs greedy decoding)
+            use_api: Whether to use HuggingFace API instead of local model
+            api_token: HuggingFace API token (required if use_api=True)
+            use_quantization: Whether to use 8-bit quantization (requires GPU)
+        """
         self.model_name = model_name
-        self.max_tokens = max_tokens
+        self.device = device
+        self.max_new_tokens = max_new_tokens
         self.temperature = temperature
         self.top_p = top_p
-        
-        self.api_token = huggingface_api_token or os.getenv("HUGGINGFACE_API_TOKEN")
-        
-        if not self.api_token:
-            logger.warning(
-                "Aucun token HuggingFace trouvé. "
-                "Définissez HUGGINGFACE_API_TOKEN dans l'environnement ou passez-le en paramètre."
-            )
-        
-        self.default_template = """Tu es un assistant IA expert qui répond aux questions en se basant strictement sur le contexte fourni.
+        self.do_sample = do_sample
+        self.use_api = use_api
+        self.api_token = api_token
+        self.use_quantization = use_quantization and device == "cuda"
 
-Contexte:
+        # Initialize components
+        self.llm = None
+        self.tokenizer = None
+
+        logger.info(f"LLMQuestionAnswering initialized with model: {model_name}")
+        logger.info(f"Device: {device}, API mode: {use_api}")
+
+    def _load_local_model(self) -> HuggingFacePipeline:
+        """
+        Load a local HuggingFace model.
+
+        Returns:
+            HuggingFacePipeline instance
+        """
+        logger.info(f"Loading local model: {self.model_name}")
+
+        try:
+            # Load tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name,
+                trust_remote_code=True
+            )
+
+            # Determine model type
+            model_type = self._get_model_type()
+
+            # Setup quantization config if enabled
+            quantization_config = None
+            if self.use_quantization:
+                logger.info("Using 8-bit quantization")
+                quantization_config = BitsAndBytesConfig(
+                    load_in_8bit=True,
+                    llm_int8_threshold=6.0
+                )
+
+            # Load model based on type
+            if model_type == "seq2seq":
+                model = AutoModelForSeq2SeqLM.from_pretrained(
+                    self.model_name,
+                    quantization_config=quantization_config,
+                    device_map="auto" if self.device == "cuda" else None,
+                    trust_remote_code=True
+                )
+            else:  # causal LM
+                model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    quantization_config=quantization_config,
+                    device_map="auto" if self.device == "cuda" else None,
+                    trust_remote_code=True,
+                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+                )
+
+            # Move to device if not using quantization
+            if not self.use_quantization and self.device == "cuda":
+                model = model.to(self.device)
+
+            logger.info("Model loaded successfully")
+
+            # Create pipeline
+            task = "text2text-generation" if model_type == "seq2seq" else "text-generation"
+            
+            pipe = pipeline(
+                task=task,
+                model=model,
+                tokenizer=self.tokenizer,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                do_sample=self.do_sample,
+                repetition_penalty=1.1
+            )
+
+            # Wrap in LangChain
+            llm = HuggingFacePipeline(pipeline=pipe)
+            logger.info("Pipeline created successfully")
+
+            return llm
+
+        except Exception as e:
+            logger.error(f"Error loading model: {str(e)}")
+            raise
+
+    def _load_api_model(self) -> HuggingFaceHub:
+        """
+        Load model via HuggingFace API.
+
+        Returns:
+            HuggingFaceHub instance
+        """
+        logger.info(f"Using HuggingFace API for model: {self.model_name}")
+
+        if not self.api_token:
+            raise ValueError("API token required when use_api=True")
+
+        llm = HuggingFaceHub(
+            repo_id=self.model_name,
+            huggingfacehub_api_token=self.api_token,
+            model_kwargs={
+                "max_new_tokens": self.max_new_tokens,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+                "do_sample": self.do_sample
+            }
+        )
+
+        logger.info("API model initialized")
+        return llm
+
+    def _get_model_type(self) -> str:
+        """
+        Determine if model is seq2seq or causal LM.
+
+        Returns:
+            "seq2seq" or "causal"
+        """
+        seq2seq_models = ["t5", "flan", "bart"]
+        model_lower = self.model_name.lower()
+        
+        for model_type in seq2seq_models:
+            if model_type in model_lower:
+                return "seq2seq"
+        
+        return "causal"
+
+    def load_model(self):
+        """
+        Load the LLM (either local or API).
+        """
+        if self.llm is None:
+            if self.use_api:
+                self.llm = self._load_api_model()
+            else:
+                self.llm = self._load_local_model()
+
+    def create_prompt_template(
+        self,
+        template: Optional[str] = None,
+        include_sources: bool = True
+    ) -> PromptTemplate:
+        """
+        Create a prompt template for question answering.
+
+        Args:
+            template: Custom template string (optional)
+            include_sources: Whether to include source citations
+
+        Returns:
+            PromptTemplate instance
+        """
+        if template is None:
+            # Default template optimized for RAG
+            if include_sources:
+                template = """You are a helpful AI assistant that answers questions based on the provided context. 
+Use ONLY the information from the context below to answer the question. 
+If the answer cannot be found in the context, say "I don't have enough information to answer this question based on the provided context."
+Be concise and accurate. If relevant, mention the source documents.
+
+Context:
 {context}
 
 Question: {question}
 
-Instructions:
-- Réponds de manière précise et concise
-- Base-toi UNIQUEMENT sur les informations du contexte
-- Si l'information n'est pas dans le contexte, dis clairement "Je ne trouve pas cette information dans les documents fournis"
-- Cite les sources (numéros de document) quand c'est pertinent
-- Utilise un ton professionnel mais accessible
+Answer: Let me answer based on the provided context."""
+            else:
+                template = """You are a helpful AI assistant that answers questions based on the provided context.
+Use ONLY the information from the context below to answer the question.
+If the answer cannot be found in the context, say "I don't have enough information to answer this question based on the provided context."
+Be concise and accurate.
 
-Réponse:"""
-        
-        self.prompt_template = prompt_template or self.default_template
-        
-        self._init_llm()
-        self._init_chain()
-        
-        logger.info(f"LLMHandler initialisé avec le modèle: {model_name}")
-    
-    def _init_llm(self):
-        try:
-            self.llm = HuggingFaceHub(
-                repo_id=self.model_name,
-                huggingfacehub_api_token=self.api_token,
-                model_kwargs={
-                    "temperature": self.temperature,
-                    "max_new_tokens": self.max_tokens,
-                    "top_p": self.top_p,
-                    "repetition_penalty": 1.1,
-                    "return_full_text": False
-                }
-            )
-            logger.info("LLM initialisé avec succès")
-        except Exception as e:
-            logger.error(f"Erreur lors de l'initialisation du LLM: {e}")
-            raise
-    
-    def _init_chain(self):
-        try:
-            self.prompt = PromptTemplate(
-                template=self.prompt_template,
-                input_variables=["context", "question"]
-            )
-            
-            self.chain = LLMChain(
-                llm=self.llm,
-                prompt=self.prompt,
-                verbose=False
-            )
-            
-            logger.info("Chaîne LLM créée avec succès")
-        except Exception as e:
-            logger.error(f"Erreur lors de la création de la chaîne: {e}")
-            raise
-    
-    def format_context(
-        self,
-        retrieved_docs: List[Tuple[Document, float]],
-        max_context_length: int = 3000
-    ) -> str:
-        """
-        Formate les documents récupérés en contexte pour le prompt.
-        
-        Args:
-            retrieved_docs: Liste de tuples (Document, score)
-            max_context_length: Longueur maximale du contexte en caractères
-            
-        Returns:
-            Contexte formaté sous forme de chaîne
-        """
-        if not retrieved_docs:
-            return "Aucun document pertinent trouvé."
-        
-        context_parts = []
-        current_length = 0
-        
-        for i, (doc, score) in enumerate(retrieved_docs, 1):
-            source = doc.metadata.get('source', 'Source inconnue')
-            page = doc.metadata.get('page', 'N/A')
-            
-            doc_text = f"\n--- Document {i} ---"
-            doc_text += f"\nSource: {source}"
-            doc_text += f"\nPage: {page}"
-            doc_text += f"\nScore de pertinence: {score:.3f}"
-            doc_text += f"\nContenu:\n{doc.page_content}\n"
-            
-            if current_length + len(doc_text) > max_context_length:
-                logger.warning(
-                    f"Limite de contexte atteinte. "
-                    f"Utilisation de {i-1}/{len(retrieved_docs)} documents."
-                )
-                break
-            
-            context_parts.append(doc_text)
-            current_length += len(doc_text)
-        
-        return "\n".join(context_parts)
-    
-    def generate_answer(
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+        prompt = PromptTemplate(
+            template=template,
+            input_variables=["context", "question"]
+        )
+
+        logger.info("Prompt template created")
+        return prompt
+
+    def answer_question(
         self,
         question: str,
-        retrieved_docs: List[Tuple[Document, float]],
-        return_metadata: bool = False
-    ) -> str:
+        context: str,
+        prompt_template: Optional[PromptTemplate] = None
+    ) -> Dict[str, Any]:
         """
-        Génère une réponse à partir de la question et du contexte récupéré.
-        
+        Answer a question using the provided context.
+
         Args:
-            question: Question de l'utilisateur
-            retrieved_docs: Documents récupérés avec scores
-            return_metadata: Si True, retourne aussi les métadonnées
-            
+            question: User question
+            context: Retrieved context from vector database
+            prompt_template: Custom prompt template (optional)
+
         Returns:
-            Réponse générée par le LLM (et métadonnées si demandé)
+            Dictionary containing answer and metadata
         """
-        if not question.strip():
-            raise ValueError("La question ne peut pas être vide")
-        
-        logger.info(f"Génération de réponse pour: '{question[:50]}...'")
-        
-        context = self.format_context(retrieved_docs)
-        
-        if not retrieved_docs:
-            default_response = (
-                "Je suis désolé, mais je n'ai trouvé aucun document pertinent "
-                "pour répondre à votre question. Pourriez-vous reformuler ou "
-                "poser une question différente ?"
-            )
-            return default_response if not return_metadata else {
-                "answer": default_response,
-                "context": context,
-                "sources_used": []
-            }
-        
+        if self.llm is None:
+            self.load_model()
+
+        # Create prompt template if not provided
+        if prompt_template is None:
+            prompt_template = self.create_prompt_template()
+
+        # Create chain
+        chain = LLMChain(llm=self.llm, prompt=prompt_template)
+
+        logger.info(f"Generating answer for: '{question}'")
+
         try:
-            response = self.chain.run(
-                context=context,
-                question=question
-            )
-            
-            answer = self._clean_response(response)
-            
-            logger.info("Réponse générée avec succès")
-            
-            if return_metadata:
-                return {
-                    "answer": answer,
-                    "context": context,
-                    "sources_used": [
-                        {
-                            "source": doc.metadata.get('source', 'N/A'),
-                            "page": doc.metadata.get('page', 'N/A'),
-                            "score": score
-                        }
-                        for doc, score in retrieved_docs
-                    ],
-                    "num_tokens_estimate": len(answer.split())
-                }
-            
-            return answer
-            
-        except Exception as e:
-            logger.error(f"Erreur lors de la génération: {e}")
-            error_response = (
-                "Une erreur s'est produite lors de la génération de la réponse. "
-                "Veuillez réessayer."
-            )
-            return error_response if not return_metadata else {
-                "answer": error_response,
-                "error": str(e)
+            # Generate answer
+            response = chain.invoke({
+                "context": context,
+                "question": question
+            })
+
+            # Extract answer from response
+            answer = response.get("text", "").strip()
+
+            # Post-process answer
+            answer = self._post_process_answer(answer)
+
+            result = {
+                "question": question,
+                "answer": answer,
+                "context_length": len(context),
+                "model": self.model_name
             }
-    
-    def _clean_response(self, response: str) -> str:
+
+            logger.info("Answer generated successfully")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error generating answer: {str(e)}")
+            raise
+
+    def answer_with_retrieval(
+        self,
+        question: str,
+        retriever,
+        prompt_template: Optional[PromptTemplate] = None,
+        top_k: int = 5
+    ) -> Dict[str, Any]:
         """
-        Nettoie la réponse générée par le LLM.
-        
+        Answer a question by retrieving context and generating answer.
+
         Args:
-            response: Réponse brute du LLM
-            
+            question: User question
+            retriever: DocumentRetriever instance
+            prompt_template: Custom prompt template (optional)
+            top_k: Number of documents to retrieve
+
         Returns:
-            Réponse nettoyée
+            Dictionary containing answer, sources, and metadata
         """
-        response = response.strip()
+        logger.info(f"Answering question with retrieval: '{question}'")
+
+        # Retrieve relevant context
+        results = retriever.retrieve_documents(question, top_k=top_k)
         
-        if "Réponse:" in response:
-            response = response.split("Réponse:")[-1].strip()
+        if not results:
+            return {
+                "question": question,
+                "answer": "I couldn't find any relevant information to answer this question.",
+                "sources": [],
+                "context_length": 0,
+                "model": self.model_name
+            }
+
+        # Get context
+        context = retriever.get_relevant_context(question, top_k=top_k)
+
+        # Generate answer
+        answer_result = self.answer_question(question, context, prompt_template)
+
+        # Add sources
+        sources = []
+        for result in results:
+            sources.append({
+                "source": result["source"],
+                "page": result["page"],
+                "score": result.get("similarity_score", 0.0),
+                "content_preview": result["content"][:200]
+            })
+
+        answer_result["sources"] = sources
+        answer_result["num_sources"] = len(sources)
+
+        return answer_result
+
+    def create_retrieval_qa_chain(
+        self,
+        vector_store,
+        prompt_template: Optional[PromptTemplate] = None,
+        chain_type: str = "stuff"
+    ) -> RetrievalQA:
+        """
+        Create a LangChain RetrievalQA chain.
+
+        Args:
+            vector_store: Vector store instance
+            prompt_template: Custom prompt template (optional)
+            chain_type: Type of chain ("stuff", "map_reduce", "refine")
+
+        Returns:
+            RetrievalQA chain
+        """
+        if self.llm is None:
+            self.load_model()
+
+        if prompt_template is None:
+            prompt_template = self.create_prompt_template()
+
+        # Create retrieval QA chain
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=self.llm,
+            chain_type=chain_type,
+            retriever=vector_store.as_retriever(),
+            return_source_documents=True,
+            chain_type_kwargs={"prompt": prompt_template}
+        )
+
+        logger.info(f"RetrievalQA chain created with chain_type={chain_type}")
+        return qa_chain
+
+    def _post_process_answer(self, answer: str) -> str:
+        """
+        Post-process the generated answer.
+
+        Args:
+            answer: Raw answer from model
+
+        Returns:
+            Cleaned answer
+        """
+        # Remove common artifacts
+        answer = answer.strip()
         
-        response = response.replace("```", "").strip()
+        # Remove repeated newlines
+        while "\n\n\n" in answer:
+            answer = answer.replace("\n\n\n", "\n\n")
+
+        # Handle common model artifacts
+        prefixes_to_remove = [
+            "Answer: ",
+            "A: ",
+            "Based on the context, ",
+            "According to the context, "
+        ]
         
-        return response
-    
-    def update_prompt_template(self, new_template: str):
-        if "{context}" not in new_template or "{question}" not in new_template:
-            raise ValueError(
-                "Le template doit contenir les variables {context} et {question}"
-            )
-        
-        self.prompt_template = new_template
-        self._init_chain()
-        logger.info("Template de prompt mis à jour")
-    
-    def batch_generate(
+        for prefix in prefixes_to_remove:
+            if answer.startswith(prefix):
+                answer = answer[len(prefix):].strip()
+
+        return answer
+
+    def batch_answer(
         self,
         questions: List[str],
-        retrieved_docs_list: List[List[Tuple[Document, float]]]
-    ) -> List[str]:
+        retriever,
+        top_k: int = 5,
+        show_progress: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Answer multiple questions in batch.
 
-        if len(questions) != len(retrieved_docs_list):
-            raise ValueError(
-                "Le nombre de questions doit correspondre au nombre de listes de documents"
-            )
-        
-        logger.info(f"Génération batch de {len(questions)} réponses")
-        
-        answers = []
-        for question, docs in zip(questions, retrieved_docs_list):
-            answer = self.generate_answer(question, docs)
-            answers.append(answer)
-        
-        return answers
-    
+        Args:
+            questions: List of questions
+            retriever: DocumentRetriever instance
+            top_k: Number of documents to retrieve per question
+            show_progress: Whether to show progress
+
+        Returns:
+            List of answer dictionaries
+        """
+        logger.info(f"Answering {len(questions)} questions in batch")
+
+        results = []
+        for i, question in enumerate(questions, 1):
+            if show_progress:
+                print(f"Processing question {i}/{len(questions)}...", end="\r")
+
+            result = self.answer_with_retrieval(question, retriever, top_k=top_k)
+            results.append(result)
+
+        if show_progress:
+            print(f"Completed {len(questions)} questions.            ")
+
+        return results
+
     def get_model_info(self) -> Dict[str, Any]:
         """
-        Retourne les informations sur le modèle et la configuration.
-        
+        Get information about the loaded model.
+
         Returns:
-            Dictionnaire avec les informations du modèle
+            Dictionary with model information
         """
-        return {
+        info = {
             "model_name": self.model_name,
-            "max_tokens": self.max_tokens,
+            "device": self.device,
+            "use_api": self.use_api,
+            "max_new_tokens": self.max_new_tokens,
             "temperature": self.temperature,
-            "top_p": self.top_p,
-            "prompt_template_length": len(self.prompt_template),
-            "has_api_token": self.api_token is not None
+            "model_loaded": self.llm is not None
         }
 
+        if self.tokenizer is not None:
+            info["vocab_size"] = self.tokenizer.vocab_size
 
+        return info
+
+
+# Example usage
 if __name__ == "__main__":
-    print("Test du LLM Handler...")
-    from langchain.schema import Document
-    test_doc = Document(
-        page_content="Le machine learning est une branche de l'intelligence artificielle.",
-        metadata={"source": "test.pdf", "page": 1}
+    from retriever import DocumentRetriever
+
+    # Initialize LLM handler (using smaller model for demo)
+    llm_handler = LLMQuestionAnswering(
+        model_name="google/flan-t5-base",  # Small, fast model
+        device="cpu",
+        max_new_tokens=256,
+        temperature=0.7
     )
-    try:
-        handler = LLMHandler()
-        answer = handler.generate_answer(
-            question="Qu'est-ce que le machine learning?",
-            retrieved_docs=[(test_doc, 0.95)]
-        )
-        print(f"\nRéponse générée: {answer}")   
-    except Exception as e:
-        print(f"Erreur: {e}")
-        print("\nPour utiliser ce module, définissez HUGGINGFACE_API_TOKEN:")
-        print("export HUGGINGFACE_API_TOKEN='your_token_here'")
+
+    # Load model
+    llm_handler.load_model()
+
+    # Example context
+    context = """
+    Artificial Intelligence (AI) refers to the simulation of human intelligence 
+    in machines. Machine Learning is a subset of AI that enables systems to learn 
+    and improve from experience. Deep Learning is a subset of Machine Learning 
+    that uses neural networks with multiple layers.
+    """
+
+    # Answer question
+    question = "What is the relationship between AI, ML, and Deep Learning?"
+    
+    result = llm_handler.answer_question(question, context)
+    
+    print(f"Question: {result['question']}")
+    print(f"Answer: {result['answer']}")
+    print(f"Model: {result['model']}")
