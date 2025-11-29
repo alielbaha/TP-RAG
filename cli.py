@@ -2,14 +2,16 @@
 """
 Command Line Interface for RAG System
 Supports document indexing, retrieval, and question-answering.
+
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-from src.indexer import DocumentIndexer
-from src.retriever import DocumentRetriever
+from src.indexer import DocIndexer
+from src.retriever import Retriever
+from src.llm_handler import LLMQuestionAnswering
 from src.utils import load_config, setup_logging, print_config_summary, ensure_directories
 
 
@@ -28,7 +30,7 @@ def cmd_index(args, config):
     data_path = args.data_path or indexing_config['data_path']
     
     # Initialize indexer
-    indexer = DocumentIndexer(
+    indexer = DocIndexer(
         embedding_model_name=indexing_config['embedding_model'],
         vector_store_path=indexing_config['vector_store']['path'],
         collection_name=indexing_config['vector_store']['collection_name'],
@@ -74,7 +76,7 @@ def cmd_search(args, config):
     retrieval_config = config['retrieval']
 
     # Initialize retriever
-    retriever = DocumentRetriever(
+    retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
         collection_name=indexing_config['vector_store']['collection_name'],
@@ -134,7 +136,7 @@ def cmd_list_sources(args, config):
     indexing_config = config['indexing']
 
     # Initialize retriever
-    retriever = DocumentRetriever(
+    retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
         collection_name=indexing_config['vector_store']['collection_name']
@@ -161,7 +163,213 @@ def cmd_list_sources(args, config):
         sys.exit(1)
 
 
-def cmd_test(args, config):
+def cmd_ask(args, config):
+    """
+    Ask a question and get an answer using the RAG system.
+    """
+    print("\n" + "="*80)
+    print("RAG QUESTION-ANSWERING")
+    print("="*80 + "\n")
+
+    # Get configuration
+    indexing_config = config['indexing']
+    retrieval_config = config['retrieval']
+    llm_config = config['llm']
+
+    # Initialize retriever
+    print("Initializing retriever...")
+    retriever = Retriever(
+        vector_store_path=indexing_config['vector_store']['path'],
+        embedding_model_name=indexing_config['embedding_model'],
+        collection_name=indexing_config['vector_store']['collection_name'],
+        top_k=args.top_k or retrieval_config['top_k']
+    )
+
+    try:
+        retriever.load_vector_store()
+    except Exception as e:
+        print(f"✗ Error loading vector store: {str(e)}")
+        print("  Run: python cli.py index --data-path ./data")
+        sys.exit(1)
+
+    # Initialize LLM
+    print(f"Loading LLM: {llm_config['model_name']}...")
+    print("(This may take a minute on first run)\n")
+    
+    llm_handler = LLMQuestionAnswering(
+        model_name=llm_config['model_name'],
+        device=llm_config['device'],
+        max_new_tokens=llm_config['max_new_tokens'],
+        temperature=llm_config['temperature'],
+        top_p=llm_config.get('top_p', 0.95),
+        do_sample=llm_config.get('do_sample', True),
+        use_api=llm_config.get('use_api', False),
+        api_token=llm_config.get('api_token')
+    )
+
+    try:
+        llm_handler.load_model()
+    except Exception as e:
+        print(f"✗ Error loading model: {str(e)}")
+        print("  Consider using 'google/flan-t5-base' or enable API mode")
+        sys.exit(1)
+
+    # Create prompt template
+    prompt_template = llm_handler.create_prompt_template(
+        template=config['prompt']['template']
+    )
+
+    # Process question
+    question = args.question
+    print(f"Question: {question}\n")
+    print("Generating answer...\n")
+
+    try:
+        result = llm_handler.answer_with_retrieval(
+            question=question,
+            retriever=retriever,
+            prompt_template=prompt_template,
+            top_k=args.top_k or retrieval_config['top_k']
+        )
+
+        # Display answer
+        print("="*80)
+        print("ANSWER")
+        print("="*80)
+        print(f"\n{result['answer']}\n")
+
+        # Display sources
+        if not args.no_sources:
+            print("="*80)
+            print("SOURCES")
+            print("="*80)
+            for i, source in enumerate(result['sources'], 1):
+                source_name = Path(source['source']).name
+                print(f"\n{i}. {source_name} (Page {source['page']})")
+                print(f"   Relevance Score: {source['score']:.4f}")
+                if args.show_context:
+                    print(f"   Context: {source['content_preview']}...")
+
+        # Display metadata
+        if args.verbose:
+            print("\n" + "="*80)
+            print("METADATA")
+            print("="*80)
+            print(f"Model: {result['model']}")
+            print(f"Context Length: {result['context_length']} characters")
+            print(f"Number of Sources: {result['num_sources']}")
+
+        print()
+
+    except Exception as e:
+        print(f"\n✗ Error: {str(e)}\n")
+        sys.exit(1)
+
+
+def cmd_interactive(args, config):
+    """
+    Interactive question-answering mode.
+    """
+    print("\n" + "="*80)
+    print("INTERACTIVE RAG QA MODE")
+    print("="*80)
+    print("\nType 'quit' or 'exit' to stop.")
+    print("Type 'help' for available commands.\n")
+
+    # Get configuration
+    indexing_config = config['indexing']
+    retrieval_config = config['retrieval']
+    llm_config = config['llm']
+
+    # Initialize components
+    print("Initializing system...")
+    
+    retriever = Retriever(
+        vector_store_path=indexing_config['vector_store']['path'],
+        embedding_model_name=indexing_config['embedding_model'],
+        collection_name=indexing_config['vector_store']['collection_name'],
+        top_k=retrieval_config['top_k']
+    )
+
+    try:
+        retriever.load_vector_store()
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        sys.exit(1)
+
+    print("Loading LLM (this may take a minute)...")
+    
+    llm_handler = LLMQuestionAnswering(
+        model_name=llm_config['model_name'],
+        device=llm_config['device'],
+        max_new_tokens=llm_config['max_new_tokens'],
+        temperature=llm_config['temperature'],
+        use_api=llm_config.get('use_api', False),
+        api_token=llm_config.get('api_token')
+    )
+
+    try:
+        llm_handler.load_model()
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        sys.exit(1)
+
+    prompt_template = llm_handler.create_prompt_template(
+        template=config['prompt']['template']
+    )
+
+    print("✓ System ready!\n")
+
+    # Interactive loop
+    while True:
+        try:
+            question = input("❓ Question: ").strip()
+
+            if question.lower() in ['quit', 'exit', 'q']:
+                print("\nGoodbye!")
+                break
+
+            if question.lower() == 'help':
+                print("\nAvailable commands:")
+                print("  - Type any question to get an answer")
+                print("  - 'sources' - List indexed documents")
+                print("  - 'quit' or 'exit' - Exit interactive mode")
+                print()
+                continue
+
+            if question.lower() == 'sources':
+                sources = retriever.get_unique_sources()
+                print(f"\nIndexed documents ({len(sources)}):")
+                for i, source in enumerate(sources, 1):
+                    print(f"  {i}. {Path(source).name}")
+                print()
+                continue
+
+            if not question:
+                continue
+
+            print("\n💭 Thinking...\n")
+
+            result = llm_handler.answer_with_retrieval(
+                question=question,
+                retriever=retriever,
+                prompt_template=prompt_template,
+                top_k=retrieval_config['top_k']
+            )
+
+            print(f"💡 Answer:\n{result['answer']}\n")
+
+            print(f"📚 Sources:")
+            for i, source in enumerate(result['sources'][:3], 1):
+                source_name = Path(source['source']).name
+                print(f"   {i}. {source_name} (Page {source['page']})")
+            print()
+
+        except KeyboardInterrupt:
+            print("\n\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"\n✗ Error: {str(e)}\n")
     """
     Run test queries on the indexed documents.
     """
@@ -174,7 +382,7 @@ def cmd_test(args, config):
     retrieval_config = config['retrieval']
 
     # Initialize retriever
-    retriever = DocumentRetriever(
+    retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
         collection_name=indexing_config['vector_store']['collection_name'],
@@ -234,6 +442,12 @@ Examples:
 
   # Search documents
   python cli.py search "What are the main findings?"
+
+  # Ask a question (RAG QA)
+  python cli.py ask "What is the methodology used?"
+
+  # Interactive mode
+  python cli.py interactive
 
   # List indexed documents
   python cli.py list
@@ -295,6 +509,37 @@ Examples:
     # Test command
     parser_test = subparsers.add_parser('test', help='Run test queries')
 
+    # Ask command (Q3)
+    parser_ask = subparsers.add_parser('ask', help='Ask a question using RAG')
+    parser_ask.add_argument(
+        'question',
+        type=str,
+        help='Question to ask'
+    )
+    parser_ask.add_argument(
+        '--top-k',
+        type=int,
+        help='Number of context documents to use'
+    )
+    parser_ask.add_argument(
+        '--no-sources',
+        action='store_true',
+        help='Do not show source documents'
+    )
+    parser_ask.add_argument(
+        '--show-context',
+        action='store_true',
+        help='Show context snippets from sources'
+    )
+    parser_ask.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show detailed metadata'
+    )
+
+    # Interactive command (Q3)
+    parser_interactive = subparsers.add_parser('interactive', help='Interactive QA mode')
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -327,7 +572,8 @@ Examples:
         'index': cmd_index,
         'search': cmd_search,
         'list': cmd_list_sources,
-        'test': cmd_test
+        'ask': cmd_ask,
+        'interactive': cmd_interactive
     }
 
     if args.command in commands:
