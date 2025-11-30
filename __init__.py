@@ -1,14 +1,15 @@
-from .indexer import DocumentIndexer
-from .retriever import DocumentRetriever
-from .llm_handler import LLMQuestionAnswering
-from .utils import load_config, setup_logging
+from src.indexer import DocIndexer
+from src.retriever import Retriever
+from src.llm_handler import LLMQuestionAnswering
+from src.utils import load_config, setup_logging
 
 __version__ = "1.0.0"
 
 __all__ = [
-    "DocumentIndexer",
-    "DocumentRetriever",
+    "DocIndexer",
+    "Retriever",
     "LLMQuestionAnswering",
     "load_config",
     "setup_logging",
 ]
+
