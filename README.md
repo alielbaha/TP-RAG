@@ -1,9 +1,6 @@
 # TP-RAG
 
-A simple end-to-end RAG (Retrieval-Augmented Generation) pipeline demonstrating document ingestion, vector indexing, semantic retrieval, and LLM-based answer generation.
-
-This repository is designed for learning, experimentation, and prototyping small RAG systems.
-
+End-to-end RAG 
 
 
 ---
