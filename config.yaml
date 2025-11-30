@@ -1,0 +1,87 @@
+# RAG Project Configuration File
+
+# Document Indexing Configuration
+indexing:
+  # Embedding model from HuggingFace
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  # Alternative models:
+  # - "sentence-transformers/all-mpnet-base-v2" (better quality, slower)
+  # - "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" (multilingual)
+  
+  # Vector store settings
+  vector_store:
+    path: "./chroma_db"
+    collection_name: "documents"
+  
+  # Text splitting configuration
+  text_splitting:
+    chunk_size: 1000
+    chunk_overlap: 200
+    use_markdown_splitter: false
+  
+  # Data paths
+  data_path: "./data"
+  file_type: "pdf"
+
+# Document Retrieval Configuration
+retrieval:
+  # Number of documents to retrieve
+  top_k: 5
+  
+  # Search type: "similarity" or "mmr" (Maximum Marginal Relevance)
+  search_type: "similarity"
+  
+  # Score threshold (0.0 to 1.0)
+  score_threshold: 0.0
+
+# LLM Configuration
+llm:
+  # Model identifier from HuggingFace
+  model_name: "HuggingFaceH4/zephyr-7b-beta"
+  # Alternative models:
+  # - "google/flan-t5-large" (smaller, faster)
+  # - "meta-llama/Llama-2-7b-chat-hf" (requires access token)
+  
+  # Generation parameters
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.95
+  do_sample: true
+  
+  # Device: "cuda" or "cpu"
+  device: "cpu"
+  
+  # Use HuggingFace API instead of local model
+  use_api: true
+  api_token: "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"  # Set your HF token if using API
+
+# Prompt Template Configuration
+prompt:
+  template: |
+    You are a helpful assistant that answers questions based on the provided context.
+    Use only the information from the context to answer the question.
+    If the answer cannot be found in the context, say "I don't have enough information to answer this question."
+    
+    Context:
+    {context}
+    
+    Question: {question}
+    
+    Answer:
+
+# Evaluation Configuration
+evaluation:
+  # Metrics to compute
+  metrics:
+    - "answer_relevancy"
+    - "context_precision"
+    - "faithfulness"
+  
+  # Sample size for evaluation
+  sample_size: 10
+
+# Logging Configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_file: "./logs/rag_system.log"
+  console_output: true
