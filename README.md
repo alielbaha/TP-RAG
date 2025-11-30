@@ -8,7 +8,7 @@ This repository is designed for learning, experimentation, and prototyping small
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 ```bash
 git clone https://github.com/alielbaha/TP-RAG
@@ -16,19 +16,16 @@ cd TP-RAG
 pip install -r requirements.txt
 ```
 
-## 🚀 Features
-
-- PDF ingestion & text extraction  
-- Text chunking with metadata  
+## Features
+  
 - Embedding generation & vector storage  
 - Semantic retrieval (top-k)  
 - RAG pipeline combining retrieved chunks + LLM  
-- Simple evaluation module  
-- CLI for easy interaction  
+- Streamlit interface
 
 ---
 
-## 📁 Project Structure
+## Structure
 rag-project/
 
 ├── src/
@@ -47,16 +44,23 @@ rag-project/
 
 ├── data/
 
-│   ├── document1.pdf
-
-│   ├── document2.pdf
-
-│   └── document3.pdf
-
+│   ├── document1.pdf  (le fameux livre "intrroduction to statistical learning")
+ 
 ├── cli.py
 
 ├── config.yaml
 
+├── app.py (streamlit)
+
 ├── requirements.txt
 
 └── report.pdf
+
+
+
+## Modèles
+### Embedding:
+sentence-transformers/all-MiniLM-L6-v2
+
+### QA :
+Llm : zephyr-7b-betazephyr-7b-beta
