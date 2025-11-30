@@ -14,8 +14,21 @@ This repository is designed for learning, experimentation, and prototyping small
 git clone https://github.com/alielbaha/TP-RAG
 cd TP-RAG
 pip install -r requirements.txt
-``` 
+```
 
+## 🚀 Features
+
+- PDF ingestion & text extraction  
+- Text chunking with metadata  
+- Embedding generation & vector storage  
+- Semantic retrieval (top-k)  
+- RAG pipeline combining retrieved chunks + LLM  
+- Simple evaluation module  
+- CLI for easy interaction  
+
+---
+
+## 📁 Project Structure
 rag-project/
 
 ├── src/
