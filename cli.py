@@ -39,7 +39,7 @@ def cmd_index(args, config):
         use_markdown_splitter=indexing_config['text_splitting']['use_markdown_splitter']
     )
 
-    # Index documents
+   
     try:
         print(f"Indexing documents from: {data_path}")
         vector_store = indexer.index_documents(
@@ -71,11 +71,11 @@ def cmd_search(args, config):
     print("DOCUMENT SEARCH")
     print("="*80 + "\n")
 
-    # Get configuration
+   
     indexing_config = config['indexing']
     retrieval_config = config['retrieval']
 
-    # Initialize retriever
+   
     retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
@@ -85,7 +85,7 @@ def cmd_search(args, config):
         score_threshold=retrieval_config['score_threshold']
     )
 
-    # Load vector store
+    
     try:
         retriever.load_vector_store()
     except Exception as e:
@@ -132,10 +132,10 @@ def cmd_list_sources(args, config):
     print("INDEXED DOCUMENTS")
     print("="*80 + "\n")
 
-    # Get configuration
+
     indexing_config = config['indexing']
 
-    # Initialize retriever
+   
     retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
@@ -171,12 +171,12 @@ def cmd_ask(args, config):
     print("RAG QUESTION-ANSWERING")
     print("="*80 + "\n")
 
-    # Get configuration
+    
     indexing_config = config['indexing']
     retrieval_config = config['retrieval']
     llm_config = config['llm']
 
-    # Initialize retriever
+    
     print("Initializing retriever...")
     retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
@@ -192,7 +192,7 @@ def cmd_ask(args, config):
         print("  Run: python cli.py index --data-path ./data")
         sys.exit(1)
 
-    # Initialize LLM
+    
     print(f"Loading LLM: {llm_config['model_name']}...")
     print("(This may take a minute on first run)\n")
     
@@ -219,7 +219,7 @@ def cmd_ask(args, config):
         template=config['prompt']['template']
     )
 
-    # Process question
+    
     question = args.question
     print(f"Question: {question}\n")
     print("Generating answer...\n")
@@ -232,13 +232,13 @@ def cmd_ask(args, config):
             top_k=args.top_k or retrieval_config['top_k']
         )
 
-        # Display answer
+       
         print("="*80)
         print("ANSWER")
         print("="*80)
         print(f"\n{result['answer']}\n")
 
-        # Display sources
+        
         if not args.no_sources:
             print("="*80)
             print("SOURCES")
@@ -250,7 +250,7 @@ def cmd_ask(args, config):
                 if args.show_context:
                     print(f"   Context: {source['content_preview']}...")
 
-        # Display metadata
+        
         if args.verbose:
             print("\n" + "="*80)
             print("METADATA")
@@ -276,12 +276,12 @@ def cmd_interactive(args, config):
     print("\nType 'quit' or 'exit' to stop.")
     print("Type 'help' for available commands.\n")
 
-    # Get configuration
+    
     indexing_config = config['indexing']
     retrieval_config = config['retrieval']
     llm_config = config['llm']
 
-    # Initialize components
+    
     print("Initializing system...")
     
     retriever = Retriever(
@@ -320,7 +320,7 @@ def cmd_interactive(args, config):
 
     print("✓ System ready!\n")
 
-    # Interactive loop
+   
     while True:
         try:
             question = input("❓ Question: ").strip()
@@ -377,11 +377,11 @@ def cmd_interactive(args, config):
     print("TESTING RETRIEVAL SYSTEM")
     print("="*80 + "\n")
 
-    # Get configuration
+    
     indexing_config = config['indexing']
     retrieval_config = config['retrieval']
 
-    # Initialize retriever
+    
     retriever = Retriever(
         vector_store_path=indexing_config['vector_store']['path'],
         embedding_model_name=indexing_config['embedding_model'],
@@ -411,7 +411,7 @@ def cmd_interactive(args, config):
             results = retriever.retrieve_documents(query, top_k=3)
             retriever.print_search_results(query, results, max_content_length=200)
 
-        # Evaluation
+        
         eval_results = retriever.evaluate_retrieval(test_queries)
         
         print("\n" + "="*80)
@@ -431,7 +431,7 @@ def main():
     """
     Main CLI entry point.
     """
-    # Create main parser
+    
     parser = argparse.ArgumentParser(
         description="RAG System - Document Indexing and Retrieval",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -464,10 +464,10 @@ Examples:
         help='Path to configuration file (default: config.yaml)'
     )
 
-    # Create subparsers for commands
+    
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
-    # Index command
+    
     parser_index = subparsers.add_parser('index', help='Index documents into vector store')
     parser_index.add_argument(
         '--data-path',
@@ -475,7 +475,7 @@ Examples:
         help='Path to documents directory or file'
     )
 
-    # Search command
+    
     parser_search = subparsers.add_parser('search', help='Search the vector database')
     parser_search.add_argument(
         'query',
@@ -498,7 +498,7 @@ Examples:
         help='Show concatenated context for LLM'
     )
 
-    # List sources command
+    
     parser_list = subparsers.add_parser('list', help='List indexed documents')
     parser_list.add_argument(
         '--verbose',
@@ -506,10 +506,10 @@ Examples:
         help='Show full paths'
     )
 
-    # Test command
+    
     parser_test = subparsers.add_parser('test', help='Run test queries')
 
-    # Ask command (Q3)
+    
     parser_ask = subparsers.add_parser('ask', help='Ask a question using RAG')
     parser_ask.add_argument(
         'question',
@@ -537,22 +537,22 @@ Examples:
         help='Show detailed metadata'
     )
 
-    # Interactive command (Q3)
+    
     parser_interactive = subparsers.add_parser('interactive', help='Interactive QA mode')
 
-    # Parse arguments
+    
     args = parser.parse_args()
 
-    # Show help if no command provided
+    
     if not args.command:
         parser.print_help()
         sys.exit(0)
 
-    # Load configuration
+    
     try:
         config = load_config(args.config)
         
-        # Setup logging
+        
         log_config = config.get('logging', {})
         setup_logging(
             level=log_config.get('level', 'INFO'),
@@ -560,14 +560,14 @@ Examples:
             console_output=log_config.get('console_output', True)
         )
 
-        # Ensure required directories exist
+        
         ensure_directories(config)
 
     except Exception as e:
         print(f"Error loading configuration: {str(e)}")
         sys.exit(1)
 
-    # Execute command
+    
     commands = {
         'index': cmd_index,
         'search': cmd_search,
@@ -583,4 +583,5 @@ Examples:
 
 
 if __name__ == "__main__":
+
     main()
