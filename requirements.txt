@@ -42,8 +42,7 @@ jsonpointer==3.0.0
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
 kubernetes==34.1.0
-langchain==0.0.340
-langchain-classic==1.0.0
+langchain
 langchain-community==0.4.1
 langchain-core==1.1.0
 langchain-experimental==0.4.0
@@ -53,7 +52,6 @@ langgraph==1.0.4
 langgraph-checkpoint==3.0.1
 langgraph-prebuilt==1.0.5
 langgraph-sdk==0.2.10
-langsmith==0.4.49
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 marshmallow==3.26.1
@@ -131,3 +129,4 @@ xxhash==3.6.0
 yarl==1.22.0
 zipp==3.23.0
 zstandard==0.25.0
+
