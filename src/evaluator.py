@@ -3,8 +3,8 @@ import os
 import logging
 import pandas as pd
 from typing import List, Dict, Any
-from src.retriever import Retriever
-from src.llm_handler import LLMQuestionAnswering
+from retriever import Retriever
+from llm_handler import LLMQuestionAnswering
 from datasets import Dataset
 from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from ragas import evaluate as ragas_evaluate
@@ -96,3 +96,4 @@ class RAGEvaluator:
             })
 
         return pd.DataFrame(records)
+
