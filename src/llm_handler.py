@@ -482,34 +482,3 @@ Answer:"""
         return info
 
 
-# Example usage
-if __name__ == "__main__":
-    from retriever import DocumentRetriever
-
-    # Initialize LLM handler (using smaller model for demo)
-    llm_handler = LLMQuestionAnswering(
-        model_name="google/flan-t5-base",  # Small, fast model
-        device="cpu",
-        max_new_tokens=256,
-        temperature=0.7
-    )
-
-    # Load model
-    llm_handler.load_model()
-
-    # Example context
-    context = """
-    Artificial Intelligence (AI) refers to the simulation of human intelligence 
-    in machines. Machine Learning is a subset of AI that enables systems to learn 
-    and improve from experience. Deep Learning is a subset of Machine Learning 
-    that uses neural networks with multiple layers.
-    """
-
-    # Answer question
-    question = "What is the relationship between AI, ML, and Deep Learning?"
-    
-    result = llm_handler.answer_question(question, context)
-    
-    print(f"Question: {result['question']}")
-    print(f"Answer: {result['answer']}")
-    print(f"Model: {result['model']}")
