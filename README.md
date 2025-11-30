@@ -4,6 +4,18 @@ A simple end-to-end RAG (Retrieval-Augmented Generation) pipeline demonstrating 
 
 This repository is designed for learning, experimentation, and prototyping small RAG systems.
 
+
+
+---
+
+## ⚙️ Installation
+
+```bash
+git clone https://github.com/alielbaha/TP-RAG
+cd TP-RAG
+pip install -r requirements.txt
+``` 
+
 rag-project/
 
 ├── src/
